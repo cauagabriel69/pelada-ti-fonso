@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pelada de Ti Fonso</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background:#0d0d0d; color:#e5e5e5; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .card { background:#171717; border:1px solid #262626; border-radius:14px; }
+  .card.open { border-color:#10b981; box-shadow:0 0 0 1px #10b98133, 0 0 24px #10b98114; }
+  .btn { background:#10b981; color:#04130d; font-weight:600; padding:.45rem .9rem; border-radius:10px; transition:.15s; }
+  .btn:hover { background:#22c55e; }
+  .btn-ghost { border:1px solid #333; color:#d4d4d4; padding:.4rem .8rem; border-radius:10px; transition:.15s; background:transparent; }
+  .btn-ghost:hover { border-color:#10b981; color:#22c55e; }
+  .btn-danger { border:1px solid #3f1d1d; color:#f87171; padding:.3rem .65rem; border-radius:10px; background:transparent; }
+  .btn-danger:hover { background:#3f1d1d; }
+  input, select { background:#0d0d0d; border:1px solid #2e2e2e; border-radius:9px; padding:.4rem .6rem; color:#e5e5e5; outline:none; }
+  input:focus, select:focus { border-color:#10b981; }
+  input[type=number] { width:4.2rem; text-align:center; }
+  input[type=checkbox] { accent-color:#10b981; width:1rem; height:1rem; padding:0; }
+  table { width:100%; border-collapse:collapse; font-size:.875rem; }
+  th { color:#8b8b8b; font-weight:600; font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; text-align:center; padding:.45rem .35rem; border-bottom:1px solid #262626; }
+  td { text-align:center; padding:.45rem .35rem; border-bottom:1px solid #1f1f1f; }
+  th.l, td.l { text-align:left; }
+  tr:first-child td { }
+  .pts { color:#22c55e; font-weight:700; }
+  .tab { padding:.6rem 1rem; border-bottom:2px solid transparent; color:#9a9a9a; font-weight:600; white-space:nowrap; }
+  .tab.active { color:#22c55e; border-color:#22c55e; }
+  .badge { display:inline-flex; align-items:center; gap:.35rem; padding:.12rem .6rem; border-radius:999px; font-size:.75rem; font-weight:700; border:1px solid; text-transform:capitalize; }
+  .c-vermelho { background:#ef444422; color:#f87171; border-color:#ef444466; }
+  .c-amarelo  { background:#eab30822; color:#facc15; border-color:#eab30866; }
+  .c-verde    { background:#22c55e22; color:#4ade80; border-color:#22c55e66; }
+  .c-azul     { background:#3b82f622; color:#60a5fa; border-color:#3b82f666; }
+  .dot { width:.6rem; height:.6rem; border-radius:50%; display:inline-block; }
+  .d-vermelho{background:#ef4444}.d-amarelo{background:#eab308}.d-verde{background:#22c55e}.d-azul{background:#3b82f6}
+  .chip { display:inline-flex; align-items:center; gap:.3rem; background:#0d0d0d; border:1px solid #2e2e2e; border-radius:999px; padding:.1rem .2rem .1rem .6rem; font-size:.75rem; }
+  .chip button { color:#777; padding:0 .4rem; }
+  .chip button:hover { color:#f87171; }
+  .scroll-x { overflow-x:auto; }
+  #toast { position:fixed; bottom:1rem; left:50%; transform:translateX(-50%); background:#3f1d1d; color:#fecaca; border:1px solid #7f1d1d; padding:.6rem 1rem; border-radius:10px; display:none; z-index:50; max-width:90vw; }
+  .glow { text-shadow:0 0 18px #22c55e88; }
+</style>
+</head>
+<body>
+<header class="border-b border-neutral-800 bg-[#0d0d0d] sticky top-0 z-40">
+  <div class="max-w-5xl mx-auto px-4 pt-4">
+    <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight">
+      <span class="mr-1">⚽</span><span class="text-emerald-400 glow">Pelada de Ti Fonso</span>
+    </h1>
+    <nav class="flex gap-1 mt-3 overflow-x-auto">
+      <button class="tab" data-tab="peladas">Peladas</button>
+      <button class="tab" data-tab="ranking">Ranking Geral</button>
+      <button class="tab" data-tab="ajustes">Editar Jogadores / Ajustes</button>
+    </nav>
+  </div>
+</header>
+
+<main id="app" class="max-w-5xl mx-auto px-4 py-6"></main>
+<div id="toast"></div>
+
+<script>
+const COLORS = ["vermelho", "amarelo", "verde", "azul"];
+const EVENT_LABEL = { gol: "⚽ Gol", assistencia: "🅰️ Assistência", defesa: "🧤 Defesa boa", salvou: "🛟 Salvou gol" };
+const state = {
+  tab: "peladas",
+  players: [],
+  peladas: [],
+  ranking: [],
+  open: new Set(),
+  cfgOpen: new Set(),
+  adjScope: 0,
+  adjRows: [],
+};
+
+// ---------- utils
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtDate = d => d.split("-").reverse().join("/");
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.style.display = "block";
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => (t.style.display = "none"), 3500);
+}
+
+async function api(method, url, body) {
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Erro inesperado");
+    return data;
+  } catch (e) {
+    toast(e.message);
+    throw e;
+  }
+}
+
+const badge = color => `<span class="badge c-${color}"><span class="dot d-${color}"></span>${color}</span>`;
+const playerName = id => (state.players.find(p => p.id === id) || {}).name || "?";
+
+function replacePelada(p) {
+  const i = state.peladas.findIndex(x => x.id === p.id);
+  if (i >= 0) state.peladas[i] = p; else state.peladas.unshift(p);
+}
+
+// ---------- data loading
+async function loadAll() {
+  [state.players, state.peladas, state.ranking] = await Promise.all([
+    api("GET", "/api/players"), api("GET", "/api/peladas"), api("GET", "/api/ranking"),
+  ]);
+  if (state.tab === "ajustes") state.adjRows = await api("GET", `/api/adjust-view?pelada_id=${state.adjScope}`);
+  render();
+}
+
+// ---------- tables
+function playersTable(rows) {
+  if (!rows.length) return `<p class="text-sm text-neutral-500 py-3">Nenhum jogador com estatísticas ainda.</p>`;
+  return `<div class="scroll-x"><table>
+    <thead><tr><th>#</th><th class="l">Jogador</th><th>Pts</th><th>Gols</th><th>Assist.</th><th>Defesas</th><th>Gols salvos</th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td class="text-neutral-500">${r.pos}</td><td class="l font-medium">${esc(r.name)}</td>
+      <td class="pts">${r.pontos}</td><td>${r.gols}</td><td>${r.assistencias}</td><td>${r.defesas}</td><td>${r.salvos}</td>
+    </tr>`).join("")}</tbody></table></div>`;
+}
+
+function standingsTable(rows) {
+  if (!rows.length) return `<p class="text-sm text-neutral-500 py-3">Configure os times para ver a classificação.</p>`;
+  return `<div class="scroll-x"><table>
+    <thead><tr><th>#</th><th class="l">Time</th><th>P</th><th>J</th><th>V</th><th>E</th><th>D</th><th>GP</th><th>GC</th><th>SG</th></tr></thead>
+    <tbody>${rows.map(r => `<tr>
+      <td class="text-neutral-500">${r.pos}</td><td class="l">${badge(r.color)}</td>
+      <td class="pts">${r.P}</td><td>${r.J}</td><td>${r.V}</td><td>${r.E}</td><td>${r.D}</td>
+      <td>${r.GP}</td><td>${r.GC}</td><td>${r.SG > 0 ? "+" : ""}${r.SG}</td>
+    </tr>`).join("")}</tbody></table></div>`;
+}
+
+// ---------- pelada card
+function teamConfigPanel(p) {
+  const byColor = Object.fromEntries(p.teams.map(t => [t.color, t.players]));
+  return `<div class="rounded-xl border border-neutral-800 bg-[#101010] p-3 mt-3" data-cfg="${p.id}">
+    <p class="text-xs text-neutral-400 mb-3">Marque de 2 a 4 times e escolha os jogadores de cada um. Cada jogador só pode estar em um time.</p>
+    ${state.players.length === 0 ? `<p class="text-sm text-amber-400 mb-2">Cadastre jogadores na aba "Editar Jogadores / Ajustes" para vinculá-los aos times.</p>` : ""}
+    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    ${COLORS.map(c => `<div class="rounded-lg border border-neutral-800 p-2">
+      <label class="flex items-center gap-2 cursor-pointer mb-2">
+        <input type="checkbox" data-cfg-color="${c}" ${byColor[c] ? "checked" : ""}> ${badge(c)}
+      </label>
+      <div class="space-y-1 max-h-48 overflow-y-auto">
+        ${state.players.map(pl => `<label class="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" data-cfg-player="${pl.id}" data-cfg-in="${c}" ${(byColor[c] || []).includes(pl.id) ? "checked" : ""}> ${esc(pl.name)}
+        </label>`).join("")}
+      </div>
+    </div>`).join("")}
+    </div>
+    <div class="mt-3 flex gap-2"><button class="btn" data-action="save-teams" data-id="${p.id}">Salvar times</button>
+    <button class="btn-ghost" data-action="toggle-cfg" data-id="${p.id}">Fechar</button></div>
+  </div>`;
+}
+
+function matchBlock(p, m) {
+  const teamById = Object.fromEntries(p.teams.map(t => [t.id, t]));
+  const h = teamById[m.home_team_id], a = teamById[m.away_team_id];
+  const pool = [...new Set([...(h ? h.players : []), ...(a ? a.players : [])])];
+  const options = (pool.length ? pool : state.players.map(x => x.id))
+    .map(id => `<option value="${id}">${esc(playerName(id))}</option>`).join("");
+  return `<div class="rounded-xl border border-neutral-800 bg-[#101010] p-3" data-match="${m.id}">
+    <div class="flex flex-wrap items-center gap-2 justify-between">
+      <div class="flex items-center gap-2 flex-wrap">
+        ${badge(h.color)}
+        <input type="number" min="0" value="${m.home_goals}" data-mg="home">
+        <span class="text-neutral-500">x</span>
+        <input type="number" min="0" value="${m.away_goals}" data-mg="away">
+        ${badge(a.color)}
+        <button class="btn-ghost text-sm" data-action="save-match" data-id="${m.id}">Salvar placar</button>
+      </div>
+      <button class="btn-danger text-sm" data-action="del-match" data-id="${m.id}">Excluir</button>
+    </div>
+    <div class="flex flex-wrap gap-2 mt-3">
+      ${m.events.length ? m.events.map(e => `<span class="chip">${EVENT_LABEL[e.type]} · ${esc(e.name)}<button data-action="del-event" data-id="${e.id}" title="Remover">✕</button></span>`).join("")
+        : `<span class="text-xs text-neutral-500">Nenhum evento lançado.</span>`}
+    </div>
+    <div class="flex flex-wrap gap-2 mt-3 items-center">
+      <select data-ev-type>${Object.entries(EVENT_LABEL).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select>
+      <select data-ev-player>${options}</select>
+      <button class="btn text-sm" data-action="add-event" data-id="${m.id}">Lançar</button>
+    </div>
+  </div>`;
+}
+
+function peladaCard(p) {
+  const open = state.open.has(p.id);
+  const teamOpts = p.teams.map(t => `<option value="${t.id}">${t.color[0].toUpperCase() + t.color.slice(1)}</option>`).join("");
+  return `<section class="card ${open ? "open" : ""}" data-pelada="${p.id}">
+    <div class="flex items-center justify-between gap-3 p-4 cursor-pointer" data-action="toggle" data-id="${p.id}">
+      <div class="min-w-0">
+        <div class="font-bold text-lg">📅 Pelada de ${fmtDate(p.date)}</div>
+        <div class="flex flex-wrap gap-1 mt-1">${p.teams.length ? p.teams.map(t => badge(t.color)).join("") : `<span class="text-xs text-neutral-500">Sem times configurados</span>`}</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-neutral-500 hidden sm:inline">${p.matches.length} partida(s)</span>
+        <span class="text-emerald-400 text-xl">${open ? "▾" : "▸"}</span>
+      </div>
+    </div>
+    ${open ? `<div class="px-4 pb-4 space-y-5 border-t border-neutral-800 pt-4">
+      <div>
+        <div class="flex flex-wrap gap-2 items-center justify-between">
+          <h3 class="font-semibold text-emerald-400">Times do dia</h3>
+          <div class="flex gap-2">
+            <button class="btn-ghost text-sm" data-action="toggle-cfg" data-id="${p.id}">⚙️ Configurar times</button>
+            <button class="btn-danger text-sm" data-action="del-pelada" data-id="${p.id}">Excluir pelada</button>
+          </div>
+        </div>
+        ${p.teams.length ? `<div class="flex flex-wrap gap-3 mt-2 text-sm">${p.teams.map(t => `<div>${badge(t.color)} <span class="text-neutral-400">${t.players.map(playerName).map(esc).join(", ") || "sem jogadores"}</span></div>`).join("")}</div>` : ""}
+        ${state.cfgOpen.has(p.id) ? teamConfigPanel(p) : ""}
+      </div>
+      <div><h3 class="font-semibold text-emerald-400 mb-1">Classificação dos times</h3>${standingsTable(p.standings)}</div>
+      <div>
+        <h3 class="font-semibold text-emerald-400 mb-2">Partidas</h3>
+        ${p.teams.length >= 2 ? `<div class="flex flex-wrap items-center gap-2 mb-3" data-newmatch="${p.id}">
+          <select data-nm="home">${teamOpts}</select>
+          <input type="number" min="0" value="0" data-nm="hg">
+          <span class="text-neutral-500">x</span>
+          <input type="number" min="0" value="0" data-nm="ag">
+          <select data-nm="away">${teamOpts}</select>
+          <button class="btn" data-action="add-match" data-id="${p.id}">+ Registrar partida</button>
+        </div>` : `<p class="text-sm text-neutral-500 mb-2">Configure ao menos 2 times para registrar partidas.</p>`}
+        <div class="space-y-3">${p.matches.map(m => matchBlock(p, m)).join("")}</div>
+      </div>
+      <div><h3 class="font-semibold text-emerald-400 mb-1">Jogadores do dia</h3>${playersTable(p.players_table)}</div>
+    </div>` : ""}
+  </section>`;
+}
+
+// ---------- tabs
+function viewPeladas() {
+  return `<div class="flex items-center justify-between mb-4">
+    <h2 class="text-xl font-bold">Peladas</h2>
+    <button class="btn" data-action="new-pelada">+ Nova pelada (hoje)</button>
+  </div>
+  <div class="space-y-4">${state.peladas.length ? state.peladas.map(peladaCard).join("") :
+    `<div class="card p-8 text-center text-neutral-400">Nenhuma pelada ainda. Clique em <b class="text-emerald-400">Nova pelada</b> para começar!</div>`}</div>`;
+}
+
+function viewRanking() {
+  return `<h2 class="text-xl font-bold mb-4">🏆 Ranking Geral</h2>
+    <div class="card p-4">${playersTable(state.ranking)}</div>
+    <p class="text-xs text-neutral-500 mt-3">Pontuação: gol +3 · assistência +2 · defesa boa +2 · gol salvo +2.</p>`;
+}
+
+function viewAjustes() {
+  const scopeOpts = `<option value="0" ${state.adjScope === 0 ? "selected" : ""}>Registro geral</option>` +
+    state.peladas.map(p => `<option value="${p.id}" ${state.adjScope === p.id ? "selected" : ""}>Pelada de ${fmtDate(p.date)} (#${p.id})</option>`).join("");
+  const pel = state.peladas.find(p => p.id === state.adjScope);
+  return `<h2 class="text-xl font-bold mb-4">Editar Jogadores / Ajustes</h2>
+  <div class="card p-4 mb-5">
+    <h3 class="font-semibold text-emerald-400 mb-2">Cadastrar jogador</h3>
+    <div class="flex gap-2 flex-wrap">
+      <input id="newPlayer" placeholder="Nome do jogador" class="flex-1 min-w-[10rem]">
+      <button class="btn" data-action="add-player">Cadastrar</button>
+    </div>
+    <div class="flex flex-wrap gap-2 mt-3">${state.players.map(p => `<span class="chip">${esc(p.name)}
+      <button data-action="rename-player" data-id="${p.id}" title="Renomear">✎</button>
+      <button data-action="del-player" data-id="${p.id}" title="Excluir">✕</button></span>`).join("") || `<span class="text-xs text-neutral-500">Nenhum jogador cadastrado.</span>`}</div>
+  </div>
+
+  <div class="card p-4 mb-5">
+    <div class="flex flex-wrap items-center gap-3 mb-3">
+      <h3 class="font-semibold text-emerald-400">Ajustar estatísticas</h3>
+      <select id="adjScope">${scopeOpts}</select>
+    </div>
+    <p class="text-xs text-neutral-500 mb-3">Digite o total correto de cada jogador e salve a linha. As tabelas do dia e geral são recalculadas automaticamente.</p>
+    ${state.adjRows.length ? `<div class="scroll-x"><table>
+      <thead><tr><th class="l">Jogador</th><th>Gols</th><th>Assist.</th><th>Defesas</th><th>Gols salvos</th><th>Pts</th><th></th></tr></thead>
+      <tbody>${state.adjRows.map(r => `<tr data-adj="${r.player_id}">
+        <td class="l font-medium">${esc(r.name)}</td>
+        <td><input type="number" min="0" value="${r.gols}" data-k="gols"></td>
+        <td><input type="number" min="0" value="${r.assistencias}" data-k="assistencias"></td>
+        <td><input type="number" min="0" value="${r.defesas}" data-k="defesas"></td>
+        <td><input type="number" min="0" value="${r.salvos}" data-k="salvos"></td>
+        <td class="pts">${r.pontos}</td>
+        <td><button class="btn-ghost text-sm" data-action="save-adj" data-id="${r.player_id}">Salvar</button></td>
+      </tr>`).join("")}</tbody></table></div>` : `<p class="text-sm text-neutral-500">Cadastre jogadores para ajustar estatísticas.</p>`}
+  </div>
+
+  <div class="card p-4">
+    <h3 class="font-semibold text-emerald-400 mb-2">Corrigir placares${pel ? ` — pelada de ${fmtDate(pel.date)}` : ""}</h3>
+    ${!pel ? `<p class="text-sm text-neutral-500">Selecione uma pelada específica acima para corrigir os placares das partidas.</p>` :
+      pel.matches.length === 0 ? `<p class="text-sm text-neutral-500">Esta pelada ainda não tem partidas.</p>` :
+      `<div class="space-y-2">${pel.matches.map(m => {
+        const h = pel.teams.find(t => t.id === m.home_team_id), a = pel.teams.find(t => t.id === m.away_team_id);
+        return `<div class="flex flex-wrap items-center gap-2" data-match="${m.id}">
+          ${badge(h.color)}<input type="number" min="0" value="${m.home_goals}" data-mg="home">
+          <span class="text-neutral-500">x</span>
+          <input type="number" min="0" value="${m.away_goals}" data-mg="away">${badge(a.color)}
+          <button class="btn-ghost text-sm" data-action="save-match" data-id="${m.id}">Salvar placar</button></div>`;
+      }).join("")}</div>`}
+  </div>`;
+}
+
+function render() {
+  $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === state.tab));
+  $("#app").innerHTML = state.tab === "peladas" ? viewPeladas() : state.tab === "ranking" ? viewRanking() : viewAjustes();
+}
+
+// ---------- actions
+async function refreshRanking() { state.ranking = await api("GET", "/api/ranking"); }
+async function refreshAdj() { if (state.tab === "ajustes") state.adjRows = await api("GET", `/api/adjust-view?pelada_id=${state.adjScope}`); }
+
+const actions = {
+  async "new-pelada"() {
+    const p = await api("POST", "/api/peladas");
+    state.peladas.unshift(p); state.open.add(p.id); render();
+  },
+  toggle(el) {
+    const id = +el.dataset.id;
+    state.open.has(id) ? state.open.delete(id) : state.open.add(id);
+    render();
+  },
+  "toggle-cfg"(el) {
+    const id = +el.dataset.id;
+    state.cfgOpen.has(id) ? state.cfgOpen.delete(id) : state.cfgOpen.add(id);
+    render();
+  },
+  async "del-pelada"(el) {
+    if (!confirm("Excluir esta pelada e todos os seus dados?")) return;
+    await api("DELETE", `/api/peladas/${el.dataset.id}`);
+    state.peladas = state.peladas.filter(p => p.id !== +el.dataset.id);
+    await refreshRanking(); render();
+  },
+  async "save-teams"(el) {
+    const id = +el.dataset.id, panel = $(`[data-cfg="${id}"]`), teams = {};
+    $$("[data-cfg-color]:checked", panel).forEach(c => (teams[c.dataset.cfgColor] = []));
+    for (const cb of $$("[data-cfg-player]:checked", panel)) {
+      const color = cb.dataset.cfgIn;
+      if (!teams[color]) { toast(`Marque o time ${color} para vincular jogadores a ele.`); return; }
+      teams[color].push(+cb.dataset.cfgPlayer);
+    }
+    const p = await api("PUT", `/api/peladas/${id}/teams`, { teams });
+    replacePelada(p); state.cfgOpen.delete(id); await refreshRanking(); render();
+  },
+  async "add-match"(el) {
+    const id = +el.dataset.id, box = $(`[data-newmatch="${id}"]`);
+    const body = {
+      home_team_id: +$('[data-nm="home"]', box).value, away_team_id: +$('[data-nm="away"]', box).value,
+      home_goals: $('[data-nm="hg"]', box).value, away_goals: $('[data-nm="ag"]', box).value,
+    };
+    replacePelada(await api("POST", `/api/peladas/${id}/matches`, body)); render();
+  },
+  async "save-match"(el) {
+    const box = el.closest("[data-match]");
+    const p = await api("PUT", `/api/matches/${el.dataset.id}`, {
+      home_goals: $('[data-mg="home"]', box).value, away_goals: $('[data-mg="away"]', box).value,
+    });
+    replacePelada(p); render();
+  },
+  async "del-match"(el) {
+    if (!confirm("Excluir esta partida e seus eventos?")) return;
+    replacePelada(await api("DELETE", `/api/matches/${el.dataset.id}`)); await refreshRanking(); render();
+  },
+  async "add-event"(el) {
+    const box = el.closest("[data-match]");
+    const player_id = +$("[data-ev-player]", box).value;
+    if (!player_id) { toast("Selecione um jogador."); return; }
+    replacePelada(await api("POST", `/api/matches/${el.dataset.id}/events`, { player_id, type: $("[data-ev-type]", box).value }));
+    await refreshRanking(); render();
+  },
+  async "del-event"(el) {
+    replacePelada(await api("DELETE", `/api/events/${el.dataset.id}`)); await refreshRanking(); render();
+  },
+  async "add-player"() {
+    const input = $("#newPlayer"), name = input.value.trim();
+    if (!name) { toast("Informe o nome do jogador."); return; }
+    await api("POST", "/api/players", { name }); await loadAll();
+  },
+  async "rename-player"(el) {
+    const id = +el.dataset.id, name = prompt("Novo nome:", playerName(id));
+    if (!name || !name.trim()) return;
+    await api("PUT", `/api/players/${id}`, { name: name.trim() }); await loadAll();
+  },
+  async "del-player"(el) {
+    const id = +el.dataset.id;
+    if (!confirm(`Excluir ${playerName(id)}? Todas as estatísticas dele serão removidas.`)) return;
+    await api("DELETE", `/api/players/${id}`); await loadAll();
+  },
+  async "save-adj"(el) {
+    const row = el.closest("[data-adj]"), body = { pelada_id: state.adjScope, player_id: +el.dataset.id };
+    $$("[data-k]", row).forEach(i => (body[i.dataset.k] = i.value === "" ? 0 : i.value));
+    await api("PUT", "/api/adjustments", body); await loadAll(); toast("Ajuste salvo ✔");
+  },
+};
+
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-action]");
+  if (el) {
+    if (el.closest("[data-action='toggle']") === el || el.dataset.action !== "toggle") e.stopPropagation();
+    const fn = actions[el.dataset.action];
+    if (fn) fn(el).catch?.(() => {});
+    return;
+  }
+  const tab = e.target.closest("[data-tab]");
+  if (tab) { state.tab = tab.dataset.tab; loadAll(); }
+});
+
+document.addEventListener("change", async e => {
+  if (e.target.id === "adjScope") {
+    state.adjScope = +e.target.value;
+    await refreshAdj(); render();
+  }
+  // um jogador só pode estar em um time por vez
+  if (e.target.matches("[data-cfg-player]") && e.target.checked) {
+    const panel = e.target.closest("[data-cfg]");
+    $$(`[data-cfg-player="${e.target.dataset.cfgPlayer}"]`, panel).forEach(cb => { if (cb !== e.target) cb.checked = false; });
+    const colorBox = $(`[data-cfg-color="${e.target.dataset.cfgIn}"]`, panel);
+    if (colorBox) colorBox.checked = true;
+  }
+});
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.id === "newPlayer") actions["add-player"]();
+});
+
+loadAll();
+</script>
+</body>
+</html>
